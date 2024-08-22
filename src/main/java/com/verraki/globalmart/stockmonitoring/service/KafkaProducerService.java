@@ -1,7 +1,7 @@
 package com.verraki.globalmart.stockmonitoring.service;
 
-import org.springframework.util.concurrent.ListenableFuture;
+import java.util.concurrent.CompletableFuture;
 
 public interface KafkaProducerService {
-    ListenableFuture<String> sendReorderMessage(String topic, String encryptedMessage);
+    CompletableFuture<String> sendReorderMessage(String topic, String encryptedMessage);
 }

@@ -12,6 +12,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @Service
 @Slf4j
@@ -54,44 +55,29 @@ public class InventoryServiceImpl implements InventoryService {
 
 
     @Override
-    public void processInventory(Inventory inventory) {
-        try {
-            if (inventory.getStockLevel() < calculateReorderThreshold(inventory)) {
-                triggerReorder(inventory);
+    public CompletableFuture<String> processInventory(Inventory inventory) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (inventory.getStockLevel() < calculateReorderThreshold(inventory)) {
+                    return triggerReorder(inventory); // Trigger reorder and wait for result
+                }
+                return "No reorder needed";
+            } catch (Exception e) {
+                log.error("Error processing inventory for product: {}", inventory.getProduct().getName(), e);
+                return "Failed to process inventory";
             }
-        } catch (Exception e) {
-            log.error("Error processing inventory for product: {}", inventory.getProduct().getName(), e);
-        }
+        });
     }
 
 
     @Override
     public String triggerReorder(Inventory inventory) {
-//        Supplier supplier = item.getSupplier();
-//        Product product = inventory.getProduct();
-//
-//        if (!supplier.isAvailable()) {
-//            log.info("Supplier " + supplier.getName() + " is not available for product " +
-//                    product.getName() + " in region " + warehouse.getRegion());
-//            return;
-//        }
-//
-//        // Use Redis caching
-//        String cacheKey = "product_" + product.getId();
-//        Integer cachedQuantity = (Integer) redisTemplate.opsForValue().get(cacheKey);
-//        int reorderQuantity = cachedQuantity != null ? cachedQuantity : calculateReorderQuantity(inventory);
-//
-//        redisTemplate.opsForValue().set(cacheKey, reorderQuantity);
-//        log.info("Reordering " + reorderQuantity + " units of " + product.getName() + " from supplier " +
-//                supplier.getName() + " in region " + inventory.getWarehouse().getRegion());
-//
-//        // Simulate order processing
-//        processOrder(product, reorderQuantity, supplier, inventory.getWarehouse());
+        if(inventory == null){
+            log.warn("No inventory provided {}", inventory);
+            return "No inventory provided";
+        }
+
         try {
-            if(inventory == null){
-                log.warn("No inventory provided {}", inventory);
-                return "No inventory provided";
-            }
             Supplier supplier = supplierService.findAvailableSupplier(inventory.getProduct(), inventory.getLeadTime());
             if (supplier == null) {
                 log.warn("No available supplier found for product: {} with required lead time: {} days",
@@ -109,7 +95,9 @@ public class InventoryServiceImpl implements InventoryService {
             }
         } catch (Exception e) {
             log.error("Error triggering reorder for inventory", e);
+            return "Error triggering reorder";
         }
+        return null;
     }
 
 
@@ -118,13 +106,8 @@ public class InventoryServiceImpl implements InventoryService {
         return (int) (inventory.getReorderThreshold() * inventory.getRegionalDemandMultiplier());
     }
 
-
-    private int calculateReorderQuantity(Inventory inventory) {
-        return (int) (inventory.getReorderQuantity() * inventory.getRegionalDemandMultiplier());
-    }
-
-
-    private void processOrder(int reorderQuantity, Inventory inventory){
+    @Override
+    public void processOrder(int reorderQuantity, Inventory inventory){
         //process order
         String message = "Reorder " + reorderQuantity + " units of " + inventory.getProduct().getName()
                 + " for region " + inventory.getWarehouse().getRegion();
@@ -132,6 +115,11 @@ public class InventoryServiceImpl implements InventoryService {
         kafkaTemplate.send("reorder-topic", encryptedMessage);
         log.info("Reorder triggered for product: {} with quantity: {} for region: {}",
                 inventory.getProduct().getName(), reorderQuantity, inventory.getWarehouse().getRegion());
+    }
+
+
+    private int calculateReorderQuantity(Inventory inventory) {
+        return (int) (inventory.getReorderQuantity() * inventory.getRegionalDemandMultiplier());
     }
 
 
